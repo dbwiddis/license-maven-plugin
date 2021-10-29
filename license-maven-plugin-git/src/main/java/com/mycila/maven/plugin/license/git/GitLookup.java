@@ -20,6 +20,7 @@ import org.eclipse.jgit.api.Status;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.eclipse.jgit.diff.DiffConfig;
 import org.eclipse.jgit.lib.Constants;
+import org.eclipse.jgit.lib.ObjectId;
 import org.eclipse.jgit.lib.PersonIdent;
 import org.eclipse.jgit.lib.Repository;
 import org.eclipse.jgit.revwalk.FollowFilter;
@@ -38,6 +39,7 @@ import java.util.Arrays;
 import java.util.Calendar;
 import java.util.Date;
 import java.util.Iterator;
+import java.util.Set;
 import java.util.TimeZone;
 
 /**
@@ -58,6 +60,7 @@ public class GitLookup {
   private final Repository repository;
   private final TimeZone timeZone;
   private final boolean shallow;
+  private final Set<ObjectId> commitsToIgnore;
 
   /**
    * Creates a new {@link GitLookup} for a repository that is detected from the supplied {@code anyFile}.
@@ -69,9 +72,10 @@ public class GitLookup {
    * @param dateSource        where to read the commit dates from - committer date or author date
    * @param timeZone          the time zone if {@code dateSource} is {@link DateSource#COMMITER}; otherwise must be {@code null}.
    * @param checkCommitsCount
+   * @param commitsToIgnore   the commits to ignore while inspecting the history for {@code anyFile}
    * @throws IOException
    */
-  public GitLookup(File anyFile, DateSource dateSource, TimeZone timeZone, int checkCommitsCount) throws IOException {
+  public GitLookup(File anyFile, DateSource dateSource, TimeZone timeZone, int checkCommitsCount, Set<ObjectId> commitsToIgnore) throws IOException {
     super();
     this.repository = new FileRepositoryBuilder().findGitDir(anyFile).build();
     /* A workaround for  https://bugs.eclipse.org/bugs/show_bug.cgi?id=457961 */
@@ -95,6 +99,7 @@ public class GitLookup {
         throw new IllegalStateException("Unexpected " + DateSource.class.getName() + " " + dateSource);
     }
     this.checkCommitsCount = checkCommitsCount;
+    this.commitsToIgnore = commitsToIgnore;
   }
 
   /**
@@ -102,7 +107,7 @@ public class GitLookup {
    * year is taken either from the committer date or from the author identity depending on how {@link #dateSource} was
    * initialized.
    * <p>
-   * See also the note on time zones in {@link #GitLookup(File, DateSource, TimeZone, int)}.
+   * See also the note on time zones in {@link #GitLookup(File, DateSource, TimeZone, int, Set)}.
    *
    * @param file for which the year should be retrieved
    * @return year of last modification of the file
@@ -119,6 +124,9 @@ public class GitLookup {
     int commitYear = 0;
     RevWalk walk = getGitRevWalk(repoRelativePath, false);
     for (RevCommit commit : walk) {
+      if (commitsToIgnore.contains(commit.getId())) {
+        continue;
+      }
       int y = getYearFromCommit(commit);
       if (y > commitYear) {
         commitYear = y;
@@ -149,12 +157,12 @@ public class GitLookup {
       commitYear = getYearFromCommit(commit);
     }
     walk.dispose();
-    
+
     // If we couldn't find a creation year from Git assume newly created file
     if (commitYear == 0) {
         return getCurrentYear();
       }
-    
+
     return commitYear;
   }
 
@@ -183,7 +191,7 @@ public class GitLookup {
     walk.dispose();
     return authorEmail;
   }
-  
+
   boolean isShallowRepository() {
     return this.shallow;
   }

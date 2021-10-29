@@ -17,6 +17,7 @@ package com.mycila.maven.plugin.license.git;
 
 import com.mycila.maven.plugin.license.git.GitLookup.DateSource;
 import org.eclipse.jgit.api.errors.GitAPIException;
+import org.eclipse.jgit.lib.ObjectId;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -31,10 +32,15 @@ import java.io.OutputStream;
 import java.net.URL;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Arrays;
 import java.util.Calendar;
+import java.util.Set;
 import java.util.TimeZone;
+import java.util.stream.Collectors;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
+
+import static java.util.Collections.emptySet;
 
 /**
  * @author <a href="mailto:ppalaga@redhat.com">Peter Palaga</a>
@@ -156,7 +162,7 @@ class GitLookupTest {
   @Test
   void timezone() throws GitAPIException, IOException {
     try {
-      new GitLookup(gitRepoRoot.toFile(), DateSource.AUTHOR, TimeZone.getTimeZone("GMT"), 10);
+      new GitLookup(gitRepoRoot.toFile(), DateSource.AUTHOR, TimeZone.getTimeZone("GMT"), 10, emptySet());
       Assertions.fail("RuntimeException expected");
     } catch (RuntimeException e) {
       if (e.getMessage().startsWith("Time zone must be null with dateSource " + DateSource.AUTHOR.name() + "")) {
@@ -167,28 +173,46 @@ class GitLookupTest {
     }
 
     /* null is GMT */
-    GitLookup nullTzLookup = new GitLookup(gitRepoRoot.toFile(), DateSource.COMMITER, null, 10);
+    GitLookup nullTzLookup = new GitLookup(gitRepoRoot.toFile(), DateSource.COMMITER, null, 10, emptySet());
     assertLastChange(nullTzLookup, "dir1/file3.txt", 2010);
 
     /* explicit GMT */
-    GitLookup gmtLookup = new GitLookup(gitRepoRoot.toFile(), DateSource.COMMITER, TimeZone.getTimeZone("GMT"), 10);
+    GitLookup gmtLookup = new GitLookup(gitRepoRoot.toFile(), DateSource.COMMITER, TimeZone.getTimeZone("GMT"), 10, emptySet());
     assertLastChange(gmtLookup, "dir1/file3.txt", 2010);
 
     /*
      * explicit non-GMT zome. Note that the relevant commit's (GMT) time stamp is 2010-12-31T23:30:00 which yealds
      * 2011 in the CET (+01:00) time zone
      */
-    GitLookup cetLookup = new GitLookup(gitRepoRoot.toFile(), DateSource.COMMITER, TimeZone.getTimeZone("CET"), 10);
+    GitLookup cetLookup = new GitLookup(gitRepoRoot.toFile(), DateSource.COMMITER, TimeZone.getTimeZone("CET"), 10, emptySet());
     assertLastChange(cetLookup, "dir1/file3.txt", 2011);
 
   }
 
-  private GitLookup newAuthorLookup() throws IOException {
-    return new GitLookup(gitRepoRoot.toFile(), DateSource.AUTHOR, null, 10);
+  @Test
+  public void ignoreCommitsInLastChange() throws GitAPIException, IOException {
+    assertLastChange(newAuthorLookup("95d52919cbe340dc271cf1f5ec68cf36705bd3a3"), "dir1/file1.txt", 2004);
+    assertLastChange(newCommitterLookup("95d52919cbe340dc271cf1f5ec68cf36705bd3a3"), "dir1/file1.txt", 2004);
   }
 
-  private GitLookup newCommitterLookup() throws IOException {
-    return new GitLookup(gitRepoRoot.toFile(), DateSource.COMMITER, null, 10);
+  @Test
+  public void doNotIgnoreCommitsInCreation() throws GitAPIException, IOException {
+    assertCreation(newAuthorLookup("53b44baedc5a378f9b665da12f298e1003793219"), "dir1/file1.txt", 2000);
+    assertCreation(newCommitterLookup("53b44baedc5a378f9b665da12f298e1003793219"), "dir1/file1.txt", 2000);
+  }
+
+  private GitLookup newAuthorLookup(String... commitsToIgnore) throws IOException {
+    Set<ObjectId> ignoreSet = Arrays.stream(commitsToIgnore)
+            .map(ObjectId::fromString)
+            .collect(Collectors.toSet());
+    return new GitLookup(gitRepoRoot.toFile(), DateSource.AUTHOR, null, 10, ignoreSet);
+  }
+
+  private GitLookup newCommitterLookup(String... commitsToIgnore) throws IOException {
+    Set<ObjectId> ignoreSet = Arrays.stream(commitsToIgnore)
+            .map(ObjectId::fromString)
+            .collect(Collectors.toSet());
+    return new GitLookup(gitRepoRoot.toFile(), DateSource.COMMITER, null, 10, ignoreSet);
   }
 
   private void assertLastChange(GitLookup provider, String relativePath, int expected) throws

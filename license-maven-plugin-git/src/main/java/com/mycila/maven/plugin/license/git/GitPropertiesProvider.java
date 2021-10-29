@@ -17,11 +17,16 @@ package com.mycila.maven.plugin.license.git;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.Locale;
 import java.util.Properties;
+import java.util.Set;
 import java.util.TimeZone;
+import java.util.stream.Collectors;
 
 import com.mycila.maven.plugin.license.AbstractLicenseMojo;
+import org.eclipse.jgit.lib.ObjectId;
 
 /**
  * @author <a href="mailto:ppalaga@redhat.com">Peter Palaga</a>
@@ -34,6 +39,7 @@ public class GitPropertiesProvider {
   private static final String COPYRIGHT_LAST_YEAR_MAX_COMMITS_LOOKUP_KEY = "license.git.copyrightLastYearMaxCommitsLookup";
   public static final String COPYRIGHT_LAST_YEAR_SOURCE_KEY = "license.git.copyrightLastYearSource";
   public static final String COPYRIGHT_LAST_YEAR_TIME_ZONE_KEY = "license.git.copyrightLastYearTimeZone";
+  public static final String COMMITS_TO_IGNORE_KEY = "license.git.commitsToIgnore";
 
   public GitPropertiesProvider() {}
 
@@ -57,12 +63,21 @@ public class GitPropertiesProvider {
           String checkCommitsCountString = props.getProperty(MAX_COMMITS_LOOKUP_KEY);
           // Backwads compatibility
           if (checkCommitsCountString == null) {
-              checkCommitsCountString = props.getProperty(COPYRIGHT_LAST_YEAR_MAX_COMMITS_LOOKUP_KEY);              
+              checkCommitsCountString = props.getProperty(COPYRIGHT_LAST_YEAR_MAX_COMMITS_LOOKUP_KEY);
           }
           int checkCommitsCount = Integer.MAX_VALUE;
           if (checkCommitsCountString != null) {
             checkCommitsCountString = checkCommitsCountString.trim();
             checkCommitsCount = Integer.parseInt(checkCommitsCountString);
+          }
+          String commitsToIgnoreString = props.getProperty(COMMITS_TO_IGNORE_KEY);
+          Set<ObjectId> commitsToIgnore = Collections.emptySet();
+          if (commitsToIgnoreString != null) {
+            commitsToIgnoreString = commitsToIgnoreString.trim();
+            commitsToIgnore = Arrays.stream(commitsToIgnoreString.split(","))
+                    .map(String::trim)
+                    .map(ObjectId::fromString)
+                    .collect(Collectors.toSet());
           }
           final TimeZone timeZone;
           String tzString = props.getProperty(COPYRIGHT_LAST_YEAR_TIME_ZONE_KEY);
@@ -81,7 +96,7 @@ public class GitPropertiesProvider {
             default:
               throw new IllegalStateException("Unexpected " + GitLookup.DateSource.class.getName() + " " + dateSource);
           }
-          gitLookup = new GitLookup(file, dateSource, timeZone, checkCommitsCount);
+          gitLookup = new GitLookup(file, dateSource, timeZone, checkCommitsCount, commitsToIgnore);
           // One-time warning for shallow repo
           if (mojo.warnIfShallow && gitLookup.isShallowRepository()) {
             mojo.warn("Shallow git repository detected. Year and author property values may not be accurate.");
